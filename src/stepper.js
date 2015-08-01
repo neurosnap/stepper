@@ -159,7 +159,8 @@ class Step extends Event {
     if (this.validator instanceof Stepper) {
       this.validator
         .on('allEnd', () => { this.next(); })
-        .begin();
+        .run();
+      return this;
     }
     this.validator(this.next.bind(this));
     return this;

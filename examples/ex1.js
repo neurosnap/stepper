@@ -23,14 +23,12 @@ var second_step = sp.use(function(next) {
   console.log(err);
 });
 
-sp.run();
-
 console.log('===================');
 
 var pp = new Stepper({}, function(next) {
   console.log('step 1');
   next();
-}, function(next) {
+}, sp, function(next) {
   console.log('step 2');
   next();
 }).run();
