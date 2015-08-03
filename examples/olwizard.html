@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>olWizard.js</title>
+
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Open+Sans" />
+  </head>
+
+  <body>
+    <ol id="olwiz">
+      <li id="step0">Step 1</li>
+      <li id="step1">Step 2</li>
+      <li id="step2">Step 3</li>
+    </ol>
+    <script src="../stepper.dev.js"></script>
+    <script>
+      var ol_el = document.getElementById('olwiz');
+      var steps = ol_el.getElementsByTagName('li');
+
+      var sp = new stepper({
+        uid: function(step) {
+          return step.obj.id;
+        }
+      }).on('begin', function(step) {
+        console.log(step);
+      }).use(null, steps);
+
+      var zero = sp
+        .get("step0")
+        .use(function(step, next) {
+          console.log('step 1');
+          setTimeout(function() {
+            step.store({ 'sup': 'bitch' });
+            next();
+          }, 3000);
+        });
+
+      var one = sp.get(1);
+      console.log("one", one);
+
+      sp.run();
+
+      ol_el.innerHTML += '<li id="step4">Step 4</li>';
+      sp.use(null, ol_el.getElementsByTagName('li'));
+
+      setTimeout(function() {
+        console.log(zero);
+        console.log(zero.storage);
+      }, 5000);
+    </script>
+  </body>
+</html>

@@ -1,5 +1,8 @@
 'use strict';
 
+/**
+ * https://github.com/jeromeetienne/microevent.js
+ */
 class Event {
   constructor() {
     this._events = {};
@@ -38,7 +41,7 @@ export default class Stepper extends Event {
 
     for (let i = 0; i < args.length; i++) {
       var step = args[i];
-      this._steps.push(step instanceof Step ? step : new Step(this, step));
+      this.steps.push(step instanceof Step ? step : new Step(this, step));
     }
   };
 
@@ -47,20 +50,52 @@ export default class Stepper extends Event {
     return this;
   }
 
+  uid(step) {
+    return step.uid();
+  };
+
   get(stepId) {
     if (!isNaN(stepId)) {
-      if (stepId < this._steps.length && stepId >= 0) {
-        return this._steps[stepId];
+      if (stepId < this.steps.length && stepId >= 0) {
+        return this.steps[stepId];
       }
     }
 
-    for (let i = 0; i < this._steps.length; i++) {
-      let step = this._steps[i];
-      if (step.id == stepId) return step;
+    var tmp_step = new Step(this, stepId);
+
+    for (let i = 0; i < this.steps.length; i++) {
+      let step = this.steps[i];
+      if (this.uid(step) == stepId
+          || step.uid() == stepId
+          || this.equal(step, tmp_step)) {
+            return step;
+      }
     }
 
     return false;
   }
+
+  get steps() {
+    if (typeof this._steps === 'function') {
+      return this._steps();
+    }
+    return this._steps;
+  };
+
+  /*set steps(the_list) {
+    if (typeof the_list === 'function') {
+      the_list = the_list.call(this);
+    }
+
+    let steps = [];
+    for (let i = 0; i < the_list.length; i++) {
+      let new_step = new Step(this, the_list[i]);
+      let step_already_exists = this.indexOf(new_step);
+      if (step_already_exists > -1) new_step = this.steps[step_already_exists];
+      steps.push(new_step);
+    }
+    this._steps = steps;
+  };*/
 
   get step() {
     return this._step;
@@ -72,7 +107,7 @@ export default class Stepper extends Event {
       throw new Error('Not in step list, add it first then set it to active');
     }
 
-    this._step = this._steps[stepNum];
+    this._step = this.steps[stepNum];
     this._num = stepNum;
     this.emit('beforeBegin', this.step, this.num);
     this.step._begin();
@@ -83,56 +118,67 @@ export default class Stepper extends Event {
   };
 
   set num(stepNum) {
-    if (stepNum >= this._steps.length) {
+    if (stepNum >= this.steps.length) {
       this.end();
       return this;
     }
-    this.step = this._steps[stepNum];
+    this.step = this.steps[stepNum];
   };
 
   begin(step) {
     let stepNum = this.indexOf(step);
     if (stepNum == -1) stepNum = step;
-    this._steps[stepNum]._begin();
+    this.steps[stepNum]._begin();
     return this;
   };
 
   end() {
     this.status = 1;
-    this.emit('allEnd');
+    this.emit('finish');
     return this;
   };
 
-  use(new_step) {
-    if (new_step instanceof Step === false) {
-      new_step = new Step(this, new_step);
+  use(validator, objs) {
+    let step_objs = [null];
+    if (typeof objs !== 'undefined') {
+      if (isNodeList(objs) || isArray(objs)) {
+        step_objs = objs;
+      } else {
+        step_objs = [objs];
+      }
     }
 
-    if (this.indexOf(new_step) > -1) return;
+    let step;
+    for (let i = 0; i < step_objs.length; i++) {
+      if (validator instanceof Step === false) {
+        step = new Step(this, validator, step_objs[i]);
+        if (this.indexOf(step) > -1) return;
+        this.steps.push(step);
+      }
+    }
 
-    this._steps.push(new_step);
-    return new_step;
+    return this;
   };
 
   indexOf(check_step) {
     if (check_step instanceof Step === false) return false;
 
-    for (let i = 0; i < this._steps.length; i++) {
-      if (this.equal(check_step, this._steps[i])) return i;
+    for (let i = 0; i < this.steps.length; i++) {
+      if (this.equal(check_step, this.steps[i])) return i;
     }
 
     return -1;
   };
 
   each(fn, reverse=false) {
-    for (let i = 0; i < this._steps.length; i++) {
-      fn.call(this, this._steps[i], 1);
+    for (let i = 0; i < this.steps.length; i++) {
+      fn.call(this, this.steps[i], 1);
     }
     return this;
   };
 
   equal(fstep, sstep) {
-    return fstep._id == sstep._id;
+    return fstep.uid() == sstep.uid();
   };
 
   prev() {
@@ -141,28 +187,44 @@ export default class Stepper extends Event {
     this.num = prev;
     return this;
   };
+
+  validator(step) {
+    return [false, null];
+  }
 }
 
 class Step extends Event {
-  constructor(stepper, validator=function(next) { next(); }) {
+  constructor(stepper, validator, obj) {
     super();
+
     this._id = uuid();
+    this._obj = obj;
+
+    this.validator = validator || function(step, next) { next(); };
     this.status = 0;
     this.err = null;
     this.stepper = stepper;
-    this.validator = validator;
+    this.storage = null;
   };
 
   _begin() {
     this.stepper.emit('begin', this);
-    this.emit('end');
+    this.emit('begin');
+
+    let err, results = this.stepper.validator(this);
+    if (err) {
+      this.next(results);
+      return this;
+    }
+
     if (this.validator instanceof Stepper) {
       this.validator
-        .on('allEnd', () => { this.next(); })
+        .on('finish', () => { this.next(); })
         .run();
       return this;
     }
-    this.validator(this.next.bind(this));
+
+    this.validator(this, this.next.bind(this));
     return this;
   };
 
@@ -177,22 +239,43 @@ class Step extends Event {
     this.status = 1;
     this.err = null;
 
-    this.stepper.emit('end', this);
-    this.emit('end');
+    this.stepper.emit('success', this);
+    this.emit('success');
     this.stepper.num = this.stepper.num + 1;
     return this;
   };
 
-  get num() { return this.stepper.indexOf(this); };
-
-  get data() {
-    return this._data;
+  use(fn, obj) {
+    this.validator = fn;
+    if (typeof obj !== 'undefined') {
+      this._obj = obj;
+    }
+    return this;
   };
 
-  set data(obj) {
-    this._data = obj;
-    this.stepper.emit('data', this);
-    this.emit('data');
+  store(data) {
+    this.storage = data;
+    this.stepper.emit('store', this);
+    this.emit('store');
+    return this;
+  };
+
+  get num() {
+    return this.stepper.indexOf(this);
+  };
+
+  get obj() {
+    return this._obj;
+  };
+
+  set obj(obj) {
+    this._obj = obj;
+    this.stepper.emit('obj', this);
+    this.emit('obj');
+  }
+
+  uid() {
+    return this._id;
   }
 }
 
@@ -218,3 +301,23 @@ function uuid() {
     return v.toString(16);
   });
 }
+
+/**
+ * https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/isArray#Polyfill
+ */
+function isArray(arg) {
+  return Object.prototype.toString.call(arg) === '[object Array]';
+};
+
+/**
+ * http://stackoverflow.com/a/7238344/1713216
+ */
+function isNodeList(nodes) {
+  var stringRepr = Object.prototype.toString.call(nodes);
+
+  return typeof nodes === 'object'
+    && /^\[object (HTMLCollection|NodeList|Object)\]$/.test(stringRepr)
+    && nodes.hasOwnProperty('length')
+    && (nodes.length === 0 || (typeof nodes[0] === "object" && nodes[0].nodeType > 0));
+}
+
